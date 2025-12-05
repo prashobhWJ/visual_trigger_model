@@ -1,0 +1,39 @@
+{
+  "videos": [
+    {
+      "id": "video_001",
+      "url": "https://example.com/video1.mp4",
+      "triggers": [
+        {
+          "timestamp": 5.2,
+          "label": 1,
+          "description": "Person enters the frame"
+        },
+        {
+          "timestamp": 12.5,
+          "label": 1,
+          "description": "Person exits the frame"
+        }
+      ],
+      "description": "Person walking video"
+    },
+    {
+      "id": "video_002",
+      "url": "https://example.com/video2.mp4",
+      "triggers": [
+        {
+          "timestamp": 3.0,
+          "label": 1,
+          "description": "Action starts"
+        },
+        {
+          "timestamp": 8.7,
+          "label": 1,
+          "description": "Action completes"
+        }
+      ],
+      "description": "Action video"
+    }
+  ]
+}
+

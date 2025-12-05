@@ -1,0 +1,6 @@
+video_path,timestamp,label,description
+video_001.mp4,5.2,1,Person enters the frame
+video_001.mp4,12.5,1,Person exits the frame
+video_002.mp4,3.0,1,Action starts
+video_002.mp4,8.7,1,Action completes
+

@@ -1,0 +1,110 @@
+# Configuration file for Video Trigger Model
+
+# Data paths
+data:
+  train_video_dir: "data/raw_videos/video"
+  train_annotations: "data/train/activitynet_annotations.json"
+  val_video_dir: "data/val/videos"
+  val_annotations: "data/val/annotations.json"
+  frame_sampling_rate: 3  # FPS for lightweight analysis (2-5 FPS)
+  clip_window_size: 16  # Number of frames around trigger for detailed analysis
+  clip_overlap: 4  # Overlapping frames for context
+  max_frames: 30  # Maximum frames per video sample (None = no limit, lower = less memory)
+  use_fiftyone: false  # Set to true to use FiftyOne (requires MongoDB), false to use direct JSON loading
+  auto_split: true  # Automatically create train/val split from training data if validation set is empty
+  val_ratio: 0.2  # Ratio of data to use for validation when auto_split is enabled (default: 20%)
+  split_seed: 42  # Random seed for reproducible train/val splits
+
+# Model architecture
+model:
+  # Stage 1: Visual Encoder
+  visual_encoder:
+    type: "resnet50"  # Options: resnet18, resnet50, efficientnet_b0
+    pretrained: true
+    feature_dim: 512
+    
+  # Stage 1: Trigger Detector
+  trigger_detector:
+    input_dim: 512
+    hidden_dim: 256
+    num_classes: 2  # trigger/no-trigger (binary) or more for multi-class
+    threshold: 0.3
+    
+  # Stage 2: Time-aware Encoder
+  time_aware_encoder:
+    type: "transformer"  # Options: transformer, lstm
+    input_dim: 512
+    hidden_dim: 768
+    num_layers: 4
+    num_heads: 8
+    use_timestamps: true
+    
+  # Stage 3: LLM (Vision-Language Model)
+  llm:
+    use_llava: true  # Use LLaVA for vision-language understanding (recommended for scene description)
+    #llava_model_name: "lmms-lab/LLaVA-OneVision-1.5-4B-Instruct"  # LLaVA model - options:
+    #llava_model_name: "llava-hf/llava-v1.6-mistral-7b-hf"
+    #llava_model_name: "llava-hf/llava-1.5-7b-hf"  # 7B parameters, recommended
+    #llava_model_name: "mucai/llava-1.5-llama-3-8b"
+    llava_model_name: "xtuner/llava-phi-3-mini-hf" # (13B parameters, better quality but more memory)
+    #llava_model_name: "lmms-lab/LLaVA-OneVision-1.5-8B-Instruct" # (8B parameters, video-focused)
+    # If use_llava is false, uses traditional text-only LLM:
+    model_name: "google/gemma-3-1b-it"  # Fallback text-only LLM (not recommended for vision tasks)
+    max_length: 512
+    temperature: 0.7
+    use_temporal_lstm: true
+    temporal_lstm_hidden: 512
+    temporal_lstm_layers: 2
+    bidirectional: true
+    freeze_llm: true  # Freeze base LLM, train only adapters
+    dtype: "float16"  # Options: "float32", "float16", "bfloat16" - float16 recommended for LLaVA
+    use_gradient_checkpointing: true  # Enable gradient checkpointing (trades compute for memory, reduces memory by ~30-40%)
+  
+  # Freezing configuration for efficient training
+  # Set to true to freeze (keep pretrained weights), false to train
+  freeze:
+    visual_backbone: true  # Freeze pretrained visual encoder backbone
+    visual_projection: false  # Train projection head (adapts features)
+    trigger_detector: false  # Train trigger detector (task-specific)
+    time_aware_encoder: false  # Train time-aware encoder
+    llm_base: true  # Freeze base LLM
+    temporal_lstm: false  # Train temporal LSTM
+    llm_projections: false  # Train LLM projection layers (feature->LLM, LLM->vocab)
+
+# Training
+training:
+  batch_size: 8  # Reduced from 8 for memory efficiency (can increase with optimizations)
+  num_epochs: 50
+  learning_rate: 1e-4
+  weight_decay: 1e-5
+  warmup_steps: 1000
+  gradient_accumulation_steps: 8  # Increased to maintain effective batch size (4 * 8 = 32)
+  use_mixed_precision: true  # Enable AMP (Automatic Mixed Precision) - reduces memory by ~50%
+  save_dir: "checkpoints"
+  log_dir: "logs"
+  save_every: 10  # Save checkpoint every N epochs
+  eval_every: 10  # Evaluate every N epochs
+  
+  # Loss weights
+  trigger_loss_weight: 1.0
+  llm_loss_weight: 1.0
+  temporal_loss_weight: 0.5
+
+# Inference
+inference:
+  video_path: "data/test/video.mp4"
+  output_path: "outputs/analysis.json"
+  trigger_threshold: 0.3  # Lower threshold for more sensitive trigger detection (default: 0.3, can be overridden with --threshold)
+  max_analysis_length: 512
+  llava_image_size: [336, 336]  # Image size for LLaVA (336x336 is optimal, can use 512x512 for better quality but more memory)
+  # LLaVA analysis prompt - customize this to change what the model analyzes
+  llava_prompt: "USER: <image>\nDescribe this video scene in detail. What do you see? What actions are happening? Be specific about objects, people, and activities. If this is a security or surveillance scene, describe any suspicious activities, theft, threats, or unusual actions.\nASSISTANT:"
+  # Alternative prompts you can use:
+  # llava_prompt: "USER: <image>\nDescribe this video scene in detail. What do you see? What actions are happening? Be specific about objects, people, and activities.\nASSISTANT:"
+  # llava_prompt: "USER: <image>\nAnalyze this scene and describe any important events, objects, or people. Focus on actions and changes.\nASSISTANT:"
+  # Traditional LLM prompt (used when use_llava: false)
+  llm_prompt: "Identify if there is any suspicious activity in the video scene. If there is, provide a detailed analysis of the activity. If there is no suspicious activity, respond with 'No suspicious activity detected'."
+  generate_summary: true  # Generate a summary combining all trigger analyses into one explanation
+  summary_max_tokens: 300  # Maximum tokens for video summary
+  summary_prompt: null  # Custom prompt for summarization (null = use default prompt)
+
