@@ -3,6 +3,10 @@ Training script for Video Trigger Model
 Implements the multi-stage training loop as described in the blueprint
 """
 
+import os
+# Set tokenizers parallelism before any tokenizer imports to avoid warnings
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -10,7 +14,6 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp import autocast, GradScaler
 import yaml
 import argparse
-import os
 from typing import Optional
 from tqdm import tqdm
 from transformers import AutoTokenizer
