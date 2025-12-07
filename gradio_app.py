@@ -16,7 +16,8 @@ import tempfile
 import shutil
 
 from models import VideoTriggerModel
-from utils import VideoProcessor, FrameSampler
+from utils import VideoProcessor, FrameSampler, DETRDetector
+from PIL import Image
 
 # Text-to-speech imports
 try:
@@ -34,6 +35,7 @@ except ImportError:
 cached_model = None
 cached_config = None
 cached_checkpoint_path = None
+cached_detr_detector = None
 
 
 def get_checkpoint_files() -> List[str]:
@@ -191,7 +193,7 @@ def analyze_video(
         threshold: Threshold for detecting triggers
     Returns: (video_update, analysis_html, summary_text, audio_path, json_file)
     """
-    global cached_model, cached_config
+    global cached_model, cached_config, cached_detr_detector
     
     if video_file is None:
         return gr.Video(), "⚠️ Please upload a video file", "", None, gr.File(visible=False)
@@ -258,6 +260,56 @@ def analyze_video(
         # But we can check if we hit the limit
         original_count = len(results)  # This is already sampled
         was_sampled = len(results) == max_frames  # Likely sampled if we hit the exact limit
+        
+        progress(0.7, desc="Detecting objects with DETR...")
+        
+        # Initialize DETR detector if not already cached
+        if cached_detr_detector is None:
+            try:
+                cached_detr_detector = DETRDetector(device=str(device_obj), confidence_threshold=0.7)
+            except Exception as e:
+                print(f"⚠️ Could not initialize DETR detector: {e}")
+                cached_detr_detector = None
+        
+        # Run DETR detection on frames with triggers
+        if cached_detr_detector is not None and len(results) > 0:
+            print("🔍 Running DETR object detection on triggered frames...")
+            import numpy as np
+            for result in results:
+                frame_idx = result.get('frame_index', None)
+                if frame_idx is not None and frame_idx < len(frames):
+                    try:
+                        # Get the frame (should be numpy array from FrameSampler)
+                        frame_array = frames[frame_idx]
+                        
+                        # Convert numpy array to PIL Image
+                        if isinstance(frame_array, np.ndarray):
+                            # Ensure it's uint8 and in correct format
+                            if frame_array.dtype != np.uint8:
+                                frame_array = (frame_array * 255).astype(np.uint8) if frame_array.max() <= 1.0 else frame_array.astype(np.uint8)
+                            frame_pil = Image.fromarray(frame_array)
+                            
+                            # Run DETR detection
+                            detections = cached_detr_detector.detect_major_objects(frame_pil)
+                            result['object_detections'] = detections
+                            result['detection_summary'] = cached_detr_detector.format_detections_text(detections)
+                        elif isinstance(frame_array, Image.Image):
+                            # Already a PIL Image
+                            detections = cached_detr_detector.detect_major_objects(frame_array)
+                            result['object_detections'] = detections
+                            result['detection_summary'] = cached_detr_detector.format_detections_text(detections)
+                        else:
+                            result['object_detections'] = []
+                            result['detection_summary'] = "Frame format not supported"
+                    except Exception as e:
+                        print(f"⚠️ DETR detection error for frame {frame_idx}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        result['object_detections'] = []
+                        result['detection_summary'] = f"Detection failed: {str(e)}"
+                else:
+                    result['object_detections'] = []
+                    result['detection_summary'] = "Frame index not available"
         
         progress(0.8, desc="Generating summary...")
         
@@ -327,6 +379,49 @@ def analyze_video(
         return gr.Video(), error_msg, "", None, gr.File(visible=False)
 
 
+def _format_object_detections_html(detections: List[Dict], summary: str) -> str:
+    """Format object detections as HTML."""
+    if not detections:
+        return ""
+    
+    # Group detections by class
+    class_groups = {}
+    for det in detections:
+        class_name = det['class']
+        if class_name not in class_groups:
+            class_groups[class_name] = []
+        class_groups[class_name].append(det)
+    
+    # Build detection list
+    detection_items = []
+    for class_name, dets in sorted(class_groups.items()):
+        count = len(dets)
+        avg_conf = sum(d['confidence'] for d in dets) / len(dets)
+        if count == 1:
+            detection_items.append(f"<li><strong>{class_name}</strong> ({avg_conf:.1%})</li>")
+        else:
+            detection_items.append(f"<li><strong>{count} {class_name}s</strong> ({avg_conf:.1%} avg)</li>")
+    
+    return f"""
+    <div style='
+        background: #fff3cd;
+        padding: 12px;
+        border-radius: 5px;
+        border-left: 4px solid #ffc107;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    '>
+        <strong style='color: #856404; display: block; margin-bottom: 8px;'>🔍 Detected Objects:</strong>
+        <ul style='margin: 0; padding-left: 20px; color: #856404;'>
+            {''.join(detection_items)}
+        </ul>
+        <p style='margin: 8px 0 0 0; color: #856404; font-size: 0.9em; font-style: italic;'>
+            {summary}
+        </p>
+    </div>
+    """
+
+
 def format_analysis_html(results: List[Dict], video_path: str, was_sampled: bool = False, total_triggers: int = None) -> str:
     """Format analysis results as HTML."""
     if len(results) == 0:
@@ -360,6 +455,10 @@ def format_analysis_html(results: List[Dict], video_path: str, was_sampled: bool
         analysis = result.get('analysis', 'No analysis available')
         frame_idx = result.get('frame_index', 'N/A')
         frame_image = result.get('frame_image', None)
+        
+        # Get object detections
+        object_detections = result.get('object_detections', [])
+        detection_summary = result.get('detection_summary', '')
         
         # Color code by confidence
         if confidence > 0.7:
@@ -421,6 +520,7 @@ def format_analysis_html(results: List[Dict], video_path: str, was_sampled: bool
                 </span>
             </div>
             {frame_image_html}
+            {_format_object_detections_html(object_detections, detection_summary)}
             <div style='
                 background: #f8f9fa;
                 padding: 12px;
