@@ -2,7 +2,7 @@
 
 A multi-stage AI model for intelligent video analysis that detects trigger events and generates detailed scene descriptions using vision-language models (LLaVA). The model efficiently processes videos by only performing expensive LLM analysis on frames where triggers are detected.
 
-[![Video Demo](https://youtu.be/pVxIGV_BB0o)]
+[AI Video Analysis Demo](https://youtu.be/pVxIGV_BB0o)
 
 ## 🎯 Overview
 
