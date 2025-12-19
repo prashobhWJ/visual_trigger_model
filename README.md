@@ -2,6 +2,8 @@
 
 A multi-stage AI model for intelligent video analysis that detects trigger events and generates detailed scene descriptions using vision-language models (LLaVA). The model efficiently processes videos by only performing expensive LLM analysis on frames where triggers are detected.
 
+[![Alt text](https://youtu.be/pVxIGV_BB0o)
+
 ## 🎯 Overview
 
 The Video Trigger Model is designed for efficient video analysis with a focus on detecting important events and providing detailed scene descriptions. It uses a three-stage architecture:
